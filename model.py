@@ -7,6 +7,10 @@ class MD_uni(nn.Module):
     super(MD_uni, self).__init__()
     self.opts = opts
     lr = 0.0001
+    lr_dcontent = lr/2.5 
+
+
+    self.isDcontent = opts.isDcontent
   
     self.dis = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=3)
     self.enc_c = networks.MD_E_content(opts.input_dim_a)
@@ -14,7 +18,10 @@ class MD_uni(nn.Module):
     self.dis_opt = torch.optim.Adam(self.dis.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
     self.enc_c_opt = torch.optim.Adam(self.enc_c.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
     self.gen_opt = torch.optim.Adam(self.gen.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
- 
+    #if self.isDcontent:
+    self.disContent = networks.MD_Dis_content() 
+    self.disContent_opt = torch.optim.Adam(self.disContent.parameters(), lr=lr_dcontent, betas=(0.5, 0.999), weight_decay=0.0001)
+
     self.cls_loss = nn.BCEWithLogitsLoss()
 
   def initialize(self):
@@ -32,6 +39,8 @@ class MD_uni(nn.Module):
     self.dis.cuda(self.gpu)
     self.enc_c.cuda(self.gpu)
     self.gen.cuda(self.gpu)
+    if self.isDcontent:
+      self.disContent.cuda(self.gpu)
 
   def forward(self):
     # input images
@@ -51,6 +60,18 @@ class MD_uni(nn.Module):
     # for display
     self.image_display = torch.cat((self.real_img[0:1].detach().cpu(), self.fake_recon[0:1].detach().cpu(), \
                                     self.fake_img[0:1].detach().cpu()), dim=0)
+
+
+  def update_D_content(self, image, c_org):
+    self.input = image
+    self.z_content = self.enc_c.forward(self.input)
+    self.disContent_opt.zero_grad()
+    pred_cls = self.disContent.forward(self.z_content.detach())
+    loss_D_content = self.cls_loss(pred_cls, c_org)
+    loss_D_content.backward()
+    self.disContent_loss = loss_D_content.item()
+    nn.utils.clip_grad_norm_(self.disContent.parameters(), 5)
+    self.disContent_opt.step()
 
   def update_D(self, image, c_org, c_trg):
     self.input = image
@@ -89,8 +110,8 @@ class MD_uni(nn.Module):
 
   def backward_EG(self):
     # content Ladv for generator
-    #loss_G_GAN_Acontent = self.backward_G_GAN_content(self.z_content_a)
-    #loss_G_GAN_Bcontent = self.backward_G_GAN_content(self.z_content_b)
+    if self.opts.isDcontent:
+      loss_G_GAN_content = self.backward_G_GAN_content(self.z_content)
 
     # Ladv for generator
     pred_fake, pred_fake_cls = self.dis.forward(self.fake_img)
@@ -112,19 +133,32 @@ class MD_uni(nn.Module):
 
 
     loss_G = loss_G_GAN + loss_G_cls + loss_G_rec + loss_kl_zc
+    if self.opts.isDcontent:
+      loss_G += loss_G_GAN_content
     loss_G.backward(retain_graph=True)
 
-    self.gan_loss = loss_G_GAN.item()
+    self.gan_loss :w= loss_G_GAN.item()
     self.gan_cls_loss = loss_G_cls.item()
-    #self.gan_loss_bcontent = loss_G_GAN_Bcontent.item()
+    if self.opts.isDcontent:
+      self.gan_loss_content = loss_G_GAN_content.item()
     self.kl_loss_zc = loss_kl_zc.item()
     self.l1_rec_loss = loss_G_rec.item()
     self.G_loss = loss_G.item()
+
+  def backward_G_GAN_content(self, data):
+    pred_cls = self.disContent.forward(data)
+    loss_G_content = self.cls_loss(pred_cls, 1-self.c_org)
+    return loss_G_content
 
   def _l2_regularize(self, mu):
     mu_2 = torch.pow(mu, 2)
     encoding_loss = torch.mean(mu_2)
     return encoding_loss
+
+  def update_lr(self):
+    self.dis_sch.step()
+    self.enc_c_sch.step()
+    self.gen_sch.step()
 
   def assemble_outputs(self):
     images_real = self.normalize_image(self.real_img).detach()
@@ -132,6 +166,44 @@ class MD_uni(nn.Module):
     images_fake_img = self.normalize_image(self.fake_img).detach()
     row1 = torch.cat((images_real[0:1, ::], images_fake_recon[0:1, ::], images_fake_img[0:1, ::]),3)
     return row1
+
+  def normalize_image(self, x):
+    return x[:,0:3,:,:]
+
+
+  def save(self, filename, ep, total_it):
+    state = {
+             'dis': self.dis.state_dict(),
+             'disContent': self.disContent.state_dict(),
+             'enc_c': self.enc_c.state_dict(),
+             'gen': self.gen.state_dict(),
+             'dis_opt': self.dis_opt.state_dict(),
+             'disContent_opt': self.disContent_opt.state_dict(),
+             'enc_c_opt': self.enc_c_opt.state_dict(),
+             'gen_opt': self.gen_opt.state_dict(),
+             'ep': ep,
+             'total_it': total_it
+              }
+    torch.save(state, filename)
+    return
+
+  def resume(self, model_dir, train=True):
+    checkpoint = torch.load(model_dir)
+    # weight
+    if train:
+      self.dis.load_state_dict(checkpoint['dis'])
+      if self.isDcontent:
+        self.disContent.load_state_dict(checkpoint['disContent'])
+    self.enc_c.load_state_dict(checkpoint['enc_c'])
+    self.gen.load_state_dict(checkpoint['gen'])
+    # optimizer
+    if train:
+      self.dis_opt.load_state_dict(checkpoint['dis_opt'])
+      if self.isDcontent:
+        self.disContent_opt.load_state_dict(checkpoint['disContent_opt'])
+      self.enc_c_opt.load_state_dict(checkpoint['enc_c_opt'])
+      self.gen_opt.load_state_dict(checkpoint['gen_opt'])
+    return checkpoint['ep'], checkpoint['total_it']
 
 class DRIT(nn.Module):
   def __init__(self, opts):

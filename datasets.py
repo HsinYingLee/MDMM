@@ -4,7 +4,7 @@ from PIL import Image
 from torchvision.transforms import Compose, Resize, RandomCrop, CenterCrop, RandomHorizontalFlip, ToTensor, Normalize
 import random
 import numpy as np
-
+import torch
 
 class dataset_multi(data.Dataset):
   def __init__(self, opts):
@@ -60,7 +60,7 @@ class dataset_multi(data.Dataset):
       data = self.load_img(self.C[random.randint(0, self.C_size - 1)], self.input_dim_C)
       c_org[2] = 1
       c_trg[random.choice([0,1])] = 1
-    return data, c_org, c_trg
+    return data, torch.FloatTensor(c_org), torch.FloatTensor(c_trg)
 
   def load_img(self, img_name, input_dim):
     img = Image.open(img_name).convert('RGB')

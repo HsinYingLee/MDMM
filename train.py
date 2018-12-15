@@ -47,8 +47,16 @@ def main():
       
       
       # update model
-      model.update_D(images, c_org, c_trg)
-      model.update_EG()
+      if opts.isDcontent:
+        if (it + 1) % opts.d_iter != 0 and it < len(train_loader) - 2:
+          model.update_D_content(images, c_org)
+          continue
+        else:
+          model.update_D(images, c_org, c_trg)
+          model.update_EG()
+      else:
+        model.update_D(images, c_org, c_trg)
+        model.update_EG()
       '''
       if (it + 1) % opts.d_iter != 0 and it < len(train_loader) - 2:
         model.update_D_content(images_a, images_b)

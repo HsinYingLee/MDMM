@@ -39,6 +39,7 @@ class TrainOptions():
 
     self.parser.add_argument('--lambda_rec', type=float, default=10)
     self.parser.add_argument('--lambda_cls', type=float, default=1.0)
+    self.parser.add_argument('--isDcontent', action='store_true')
 
   def parse(self):
     self.opt = self.parser.parse_args()
