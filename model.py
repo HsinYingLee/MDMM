@@ -9,7 +9,6 @@ class MD_uni(nn.Module):
     lr = 0.0001
     lr_dcontent = lr/2.5 
 
-
     self.isDcontent = opts.isDcontent
   
     self.dis = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=3)
@@ -26,11 +25,13 @@ class MD_uni(nn.Module):
 
   def initialize(self):
     self.dis.apply(networks.gaussian_weights_init)
+    self.disContent.apply(networks.gaussian_weights_init)
     self.gen.apply(networks.gaussian_weights_init)
     self.enc_c.apply(networks.gaussian_weights_init)
 
   def set_scheduler(self, opts, last_ep=0):
     self.dis_sch = networks.get_scheduler(self.dis_opt, opts, last_ep)
+    self.disContent_sch = networks.get_scheduler(self.dis_opt, opts, last_ep)
     self.enc_c_sch = networks.get_scheduler(self.enc_c_opt, opts, last_ep)
     self.gen_sch = networks.get_scheduler(self.gen_opt, opts, last_ep)
 
@@ -157,6 +158,8 @@ class MD_uni(nn.Module):
 
   def update_lr(self):
     self.dis_sch.step()
+    if self.opts.isDcontent:
+      self.disContent_sch.step()
     self.enc_c_sch.step()
     self.gen_sch.step()
 
@@ -204,6 +207,64 @@ class MD_uni(nn.Module):
       self.enc_c_opt.load_state_dict(checkpoint['enc_c_opt'])
       self.gen_opt.load_state_dict(checkpoint['gen_opt'])
     return checkpoint['ep'], checkpoint['total_it']
+
+class MD_multi(nn.Module):
+  def __init__(self, opts):
+    super(MD_multi, self).__init__()
+    self.opts = opts
+    lr = 0.0001
+    lr_dcontent = lr/2.5 
+
+
+    self.isDcontent = opts.isDcontent
+  
+    self.dis = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=3)
+    self.enc_c = networks.MD_E_content(opts.input_dim_a)
+    if self.opts.isConcat:
+      self.enc_a = networks.MD_E_attr_concat(opts.input_dim_a, opts.input_dim_b, self.nz, \
+          norm_layer=None, nl_layer=networks.get_non_linearity(layer_type='lrelu'))
+      self.gen = networks.MD_G_multi_concat(opts.input_dim_a, opts.input_dim_b, nz=self.nz)
+    else:
+      self.enc_a = networks.E_attr(opts.input_dim_a, opts.input_dim_b, self.nz)
+      self.gen = networks.MD_G_multi(opts.input_dim_a, opts.input_dim_b, nz=self.nz)
+
+    self.dis_opt = torch.optim.Adam(self.dis.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
+    self.enc_c_opt = torch.optim.Adam(self.enc_c.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
+    self.enc_a_opt = torch.optim.Adam(self.enc_a.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
+    self.gen_opt = torch.optim.Adam(self.gen.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
+    #if self.isDcontent:
+    self.disContent = networks.MD_Dis_content() 
+    self.disContent_opt = torch.optim.Adam(self.disContent.parameters(), lr=lr_dcontent, betas=(0.5, 0.999), weight_decay=0.0001)
+
+    self.cls_loss = nn.BCEWithLogitsLoss()
+
+  def initialize(self):
+    self.dis.apply(networks.gaussian_weights_init)
+    self.disContent
+    self.gen.apply(networks.gaussian_weights_init)
+    self.enc_c.apply(networks.gaussian_weights_init)
+    self.enc_a.apply(networks.gaussian_weights_init)
+
+  def set_scheduler(self, opts, last_ep=0):
+    self.dis_sch = networks.get_scheduler(self.dis_opt, opts, last_ep)
+    self.disContent_sch = networks.get_scheduler(self.disContent_opt, opts, last_ep)
+    self.enc_c_sch = networks.get_scheduler(self.enc_c_opt, opts, last_ep)
+    self.gen_sch = networks.get_scheduler(self.gen_opt, opts, last_ep)
+
+  def update_lr(self):
+    self.dis_sch.step()
+    self.disContent_sch.step()
+    self.enc_c_sch.step()
+    self.gen_sch.step()
+
+  def setgpu(self, gpu):
+    self.gpu = gpu
+    self.dis.cuda(self.gpu)
+    self.enc_c.cuda(self.gpu)
+    self.enc_a.cuda(self.gpu)
+    self.gen.cuda(self.gpu)
+    if self.isDcontent:
+      self.disContent.cuda(self.gpu)
 
 class DRIT(nn.Module):
   def __init__(self, opts):
