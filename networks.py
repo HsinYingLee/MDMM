@@ -30,12 +30,12 @@ class MD_E_content(nn.Module):
     return self.conv(x)
 
 class MD_E_attr(nn.Module):
-  def __init__(self, input_dim_a, input_dim_b, output_nc=8):
+  def __init__(self, input_dim, output_nc=8, c_dim=3):
     super(MD_E_attr, self).__init__()
     dim = 64
-    self.model_a = nn.Sequential(
+    self.model = nn.Sequential(
         nn.ReflectionPad2d(3),
-        nn.Conv2d(input_dim_a, dim, 7, 1),
+        nn.Conv2d(input_dim+c_dim , dim, 7, 1),
         nn.ReLU(inplace=True),
         nn.ReflectionPad2d(1),
         nn.Conv2d(dim, dim*2, 4, 2),
@@ -51,98 +51,42 @@ class MD_E_attr(nn.Module):
         nn.ReLU(inplace=True),
         nn.AdaptiveAvgPool2d(1),
         nn.Conv2d(dim*4, output_nc, 1, 1, 0))
-    self.model_b = nn.Sequential(
-        nn.ReflectionPad2d(3),
-        nn.Conv2d(input_dim_b, dim, 7, 1),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim, dim*2, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*2, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*4, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*4, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.AdaptiveAvgPool2d(1),
-        nn.Conv2d(dim*4, output_nc, 1, 1, 0))
-    return
 
-  def forward(self, xa, xb):
-    xa = self.model_a(xa)
-    xb = self.model_b(xb)
-    output_A = xa.view(xa.size(0), -1)
-    output_B = xb.view(xb.size(0), -1)
-    return output_A, output_B
-
-  def forward_a(self, xa):
-    xa = self.model_a(xa)
-    output_A = xa.view(xa.size(0), -1)
-    return output_A
-
-  def forward_b(self, xb):
-    xb = self.model_b(xb)
-    output_B = xb.view(xb.size(0), -1)
-    return output_B
+  def forward(self, x, c):
+    c = c.view(c.size(0), c.size(1), 1, 1)
+    c = c.repeat(1, 1, x.size(2), x.size(3))
+    x_c = torch.cat([x, c], dim=1)
+    output = self.model_a(x_c)
+    return output.view(output.size(0), -1)
 
 class MD_E_attr_concat(nn.Module):
-  def __init__(self, input_dim_a, input_dim_b, output_nc=8, norm_layer=None, nl_layer=None):
+  def __init__(self, input_dim, output_nc=8, c_dim=3, norm_layer=None, nl_layer=None):
     super(MD_E_attr_concat, self).__init__()
 
     ndf = 64
     n_blocks=4
     max_ndf = 4
 
-    conv_layers_A = [nn.ReflectionPad2d(1)]
-    conv_layers_A += [nn.Conv2d(input_dim_a, ndf, kernel_size=4, stride=2, padding=0, bias=True)]
+    conv_layers = [nn.ReflectionPad2d(1)]
+    conv_layers += [nn.Conv2d(input_dim+c_dim, ndf, kernel_size=4, stride=2, padding=0, bias=True)]
     for n in range(1, n_blocks):
       input_ndf = ndf * min(max_ndf, n)  # 2**(n-1)
       output_ndf = ndf * min(max_ndf, n+1)  # 2**n
-      conv_layers_A += [BasicBlock(input_ndf, output_ndf, norm_layer, nl_layer)]
-    conv_layers_A += [nl_layer(), nn.AdaptiveAvgPool2d(1)] # AvgPool2d(13)
-    self.fc_A = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.fcVar_A = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.conv_A = nn.Sequential(*conv_layers_A)
+      conv_layers += [BasicBlock(input_ndf, output_ndf, norm_layer, nl_layer)]
+    conv_layers += [nl_layer(), nn.AdaptiveAvgPool2d(1)] # AvgPool2d(13)
+    self.fc = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
+    self.fcVar = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
+    self.conv = nn.Sequential(*conv_layers)
 
-    conv_layers_B = [nn.ReflectionPad2d(1)]
-    conv_layers_B += [nn.Conv2d(input_dim_b, ndf, kernel_size=4, stride=2, padding=0, bias=True)]
-    for n in range(1, n_blocks):
-      input_ndf = ndf * min(max_ndf, n)  # 2**(n-1)
-      output_ndf = ndf * min(max_ndf, n+1)  # 2**n
-      conv_layers_B += [BasicBlock(input_ndf, output_ndf, norm_layer, nl_layer)]
-    conv_layers_B += [nl_layer(), nn.AdaptiveAvgPool2d(1)] # AvgPool2d(13)
-    self.fc_B = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.fcVar_B = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.conv_B = nn.Sequential(*conv_layers_B)
-
-  def forward(self, xa, xb):
-    x_conv_A = self.conv_A(xa)
-    conv_flat_A = x_conv_A.view(xa.size(0), -1)
-    output_A = self.fc_A(conv_flat_A)
-    outputVar_A = self.fcVar_A(conv_flat_A)
-    x_conv_B = self.conv_B(xb)
-    conv_flat_B = x_conv_B.view(xb.size(0), -1)
-    output_B = self.fc_B(conv_flat_B)
-    outputVar_B = self.fcVar_B(conv_flat_B)
-    return output_A, outputVar_A, output_B, outputVar_B
-
-  def forward_a(self, xa):
-    x_conv_A = self.conv_A(xa)
-    conv_flat_A = x_conv_A.view(xa.size(0), -1)
-    output_A = self.fc_A(conv_flat_A)
-    outputVar_A = self.fcVar_A(conv_flat_A)
-    return output_A, outputVar_A
-
-  def forward_b(self, xb):
-    x_conv_B = self.conv_B(xb)
-    conv_flat_B = x_conv_B.view(xb.size(0), -1)
-    output_B = self.fc_B(conv_flat_B)
-    outputVar_B = self.fcVar_B(conv_flat_B)
-    return output_B, outputVar_B
-
+  def forward(self, x, c):
+    c = c.view(c.size(0), c.size(1), 1, 1)
+    c = c.repeat(1, 1, x.size(2), x.size(3))
+    x_c = torch.cat([x, c], dim=1)
+    x_conv = self.conv(x_c)
+    conv_flat = x_conv.view(x.size(0), -1)
+    output = self.fc(conv_flat)
+    outputVar = self.fcVar(conv_flat)
+    return output, outputVar
 
 class MD_G_uni(nn.Module):
   def __init__(self, output_dim, c_dim=3):
@@ -169,6 +113,51 @@ class MD_G_uni(nn.Module):
     c = c.repeat(1, 1, out0.size(2), out0.size(3))
     x_c = torch.cat([out0, c], dim=1)
     return self.dec(x_c)
+
+class MD_G_multi_concat(nn.Module):
+  def __init__(self, output_dim, c_dim=3, nz=8):
+    super(MD_G_multi_concat, self).__init__()
+    self.nz = nz
+    self.c_dim = c_dim
+    tch = 256
+    dec_share = []
+    dec_share += [INSResBlock(tch, tch)]
+    self.dec_share = nn.Sequential(*dec_share)
+    tch = 256+self.nz+self.c_dim
+    dec1 = []
+    for i in range(0, 3):
+      dec1 += [INSResBlock(tch, tch)]
+    tch = tch + self.nz
+    dec2 = [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
+    tch = tch//2
+    tch = tch + self.nz
+    dec3 = [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
+    tch = tch//2
+    tch = tch + self.nz
+    dec4 = [nn.ConvTranspose2d(tch, output_dim, kernel_size=1, stride=1, padding=0)]+[nn.Tanh()]
+    self.dec1 = nn.Sequential(*dec1)
+    self.dec2 = nn.Sequential(*dec2)
+    self.dec3 = nn.Sequential(*dec3)
+    self.dec4 = nn.Sequential(*dec4)
+
+  def forward(self, x, z, c):
+    out0 = self.dec_share(x)
+    z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
+    c = c.view(c.size(0), c.size(1), 1, 1)
+    c = c.repeat(1, 1, out0.size(2), out0.size(3))
+    x_c_z = torch.cat([out0, c, z_img], 1)
+    out1 = self.dec1(x_c_z)
+    z_img2 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out1.size(2), out1.size(3))
+    x_and_z2 = torch.cat([out1, z_img2], 1)
+    out2 = self.dec2(x_and_z2)
+    z_img3 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out2.size(2), out2.size(3))
+    x_and_z3 = torch.cat([out2, z_img3], 1)
+    out3 = self.dec3(x_and_z3)
+    z_img4 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out3.size(2), out3.size(3))
+    x_and_z4 = torch.cat([out3, z_img4], 1)
+    out4 = self.dec4(x_and_z4)
+    return out4
+
 
 class MD_Dis(nn.Module):
   def __init__(self, input_dim, norm='None', sn=False, c_dim=3):

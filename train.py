@@ -1,7 +1,7 @@
 import torch
 from options import TrainOptions
 from datasets import dataset_multi
-from model import MD_uni
+from model import MD_uni, MD_multi
 from saver import Saver
 
 def main():
@@ -16,7 +16,8 @@ def main():
 
   # model
   print('\n--- load model ---')
-  model = MD_uni(opts)
+  #model = MD_uni(opts)
+  model = MD_multi(opts)
   model.setgpu(opts.gpu)
   if opts.resume is None:
     model.initialize()
@@ -50,6 +51,7 @@ def main():
       if opts.isDcontent:
         if (it + 1) % opts.d_iter != 0 and it < len(train_loader) - 2:
           model.update_D_content(images, c_org)
+          #model.update_D(images, c_org, c_trg)
           continue
         else:
           model.update_D(images, c_org, c_trg)
