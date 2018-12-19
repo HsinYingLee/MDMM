@@ -360,7 +360,7 @@ class MD_multi(nn.Module):
       self.mu_recon, self.logvar_recon = self.enc_a.forward(self.fake_encoded_img, self.c_org)
       std_recon = self.logvar_recon.mul(0.5).exp_()
       eps_recon = self.get_z_random(std_recon.size(0), std_recon.size(1), 'gauss')
-      self.z_attr_recon = eps.mul(std_recon).add_(self.mu_recon)
+      self.z_attr_recon = eps_recon.mul(std_recon).add_(self.mu_recon)
     else:
       self.z_attr_recon = self.enc_a.forward(self.fake_encoded_img, self.c_org)
     self.z_attr_recon_a, self.z_attr_recon_b = torch.split(self.z_attr_recon, half_size, dim=0)
@@ -466,7 +466,7 @@ class MD_multi(nn.Module):
 
 
     # KL loss - z_c
-    loss_kl_zc = self._l2_regularize(self.z_content) * 0.01 * 0
+    loss_kl_zc = self._l2_regularize(self.z_content) * 0.01 
 
     # KL loss - z_a
     if self.concat:
@@ -505,6 +505,9 @@ class MD_multi(nn.Module):
       all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
       loss_G_GAN2 += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
 
+    # classification
+    loss_G_cls2 = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls
+
     # latent regression loss
     if self.concat:
       loss_z_L1_a = torch.mean(torch.abs(self.mu2_a - self.z_random)) * 10
@@ -513,10 +516,11 @@ class MD_multi(nn.Module):
       loss_z_L1_a = torch.mean(torch.abs(self.z_attr_random_a - self.z_random)) * 10
       loss_z_L1_b = torch.mean(torch.abs(self.z_attr_random_b - self.z_random)) * 10
 
-    loss_z_L1 = loss_z_L1_a + loss_z_L1_b + loss_G_GAN2
+    loss_z_L1 = loss_z_L1_a + loss_z_L1_b + loss_G_GAN2 + loss_G_cls2
     loss_z_L1.backward()
     self.l1_recon_z_loss = loss_z_L1_a.item() + loss_z_L1_b.item()
     self.gan2_loss = loss_G_GAN2.item()
+    self.gan2_cls_loss = loss_G_cls2.item()
 
   def _l2_regularize(self, mu):
     mu_2 = torch.pow(mu, 2)
