@@ -20,7 +20,7 @@ class TrainOptions():
     self.parser.add_argument('--name', type=str, default='trial', help='folder name to save outputs')
     self.parser.add_argument('--display_dir', type=str, default='./logs', help='path for saving display results')
     self.parser.add_argument('--result_dir', type=str, default='./results', help='path for saving result images and models')
-    self.parser.add_argument('--display_freq', type=int, default=1, help='freq (iteration) of display')
+    self.parser.add_argument('--display_freq', type=int, default=10, help='freq (iteration) of display')
     self.parser.add_argument('--img_save_freq', type=int, default=5, help='freq (epoch) of saving images')
     self.parser.add_argument('--model_save_freq', type=int, default=10, help='freq (epoch) of saving models')
     self.parser.add_argument('--no_display_img', action='store_true', help='specified if no dispaly')
@@ -40,6 +40,7 @@ class TrainOptions():
     self.parser.add_argument('--lambda_rec', type=float, default=10)
     self.parser.add_argument('--lambda_cls', type=float, default=1.0)
     self.parser.add_argument('--isDcontent', action='store_true')
+    self.parser.add_argument('--iswgan', action='store_true')
 
   def parse(self):
     self.opt = self.parser.parse_args()

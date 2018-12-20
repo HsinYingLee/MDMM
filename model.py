@@ -249,7 +249,8 @@ class MD_multi(nn.Module):
       self.concat = True
     else:
       self.concat = False
-  
+    self.iswgan = opts.iswgan 
+ 
     self.dis1 = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=3)
     self.dis2 = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=3)
     self.enc_c = networks.MD_E_content(opts.input_dim_a)
@@ -308,6 +309,21 @@ class MD_multi(nn.Module):
   def get_z_random(self, batchSize, nz, random_type='gauss'):
     z = torch.randn(batchSize, nz).cuda(self.gpu)
     return z
+
+  def test_forward(self, image, c_org):
+    self.z_random = self.get_z_random(image.size(0), self.nz, 'gauss')
+    self.z_content = self.enc_c.forward(image)
+  
+    for i in range(3):
+      pass 
+    output_fakeA = self.gen.forward(input_content_forA, input_attr_forA, input_c_forA)
+    if a2b:
+        self.z_content = self.enc_c.forward_a(image)
+        output = self.gen.forward_b(self.z_content, self.z_random)
+    else:
+        self.z_content = self.enc_c.forward_b(image)
+        output = self.gen.forward_a(self.z_content, self.z_random)
+    return output
 
   def forward(self):
     # input images
@@ -403,29 +419,46 @@ class MD_multi(nn.Module):
     self.forward()
 
     self.dis1_opt.zero_grad()
-    self.D1_gan_loss, self.D1_cls_loss = self.backward_D(self.dis1, self.input, self.fake_encoded_img)
+    if self.iswgan:
+      self.D1_gan_loss, self.D1_cls_loss, self.D1_gp_loss = self.backward_D(self.dis1, self.input, self.fake_encoded_img)
+    else:
+      self.D1_gan_loss, self.D1_cls_loss, _ = self.backward_D(self.dis1, self.input, self.fake_encoded_img)
     self.dis1_opt.step()
 
     self.dis2_opt.zero_grad()
-    self.D2_gan_loss, self.D2_cls_loss = self.backward_D(self.dis2, self.input, self.fake_random_img)
+    if self.iswgan:
+      self.D2_gan_loss, self.D2_cls_loss, self.D2_gp_loss = self.backward_D(self.dis2, self.input, self.fake_random_img)
+    else:
+      self.D2_gan_loss, self.D2_cls_loss, _ = self.backward_D(self.dis2, self.input, self.fake_random_img)
     self.dis2_opt.step()
 
   def backward_D(self, netD, real, fake):
     pred_fake, pred_fake_cls = netD.forward(fake.detach())
     pred_real, pred_real_cls = netD.forward(real)
-    loss_D_gan = 0
-    for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
-      out_fake = nn.functional.sigmoid(out_a)
-      out_real = nn.functional.sigmoid(out_b)
-      all0 = torch.zeros_like(out_fake).cuda(self.gpu)
-      all1 = torch.ones_like(out_real).cuda(self.gpu)
-      ad_fake_loss = nn.functional.binary_cross_entropy(out_fake, all0)
-      ad_true_loss = nn.functional.binary_cross_entropy(out_real, all1)
-      loss_D_gan += ad_true_loss + ad_fake_loss
+    if self.iswgan:
+      loss_D_gan = torch.mean(pred_fake) - torch.mean(pred_real)    
+      alpha = torch.rand(real.size(0), 1, 1, 1).to(self.gpu)
+      x_hat = (alpha * real.data + (1 - alpha) * fake.data).requires_grad_(True)
+      out_src, _ = netD(x_hat)
+      loss_D_gp = self.gradient_penalty(out_src, x_hat)
+    else:
+      loss_D_gan = 0
+      for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
+        out_fake = nn.functional.sigmoid(out_a)
+        out_real = nn.functional.sigmoid(out_b)
+        all0 = torch.zeros_like(out_fake).cuda(self.gpu)
+        all1 = torch.ones_like(out_real).cuda(self.gpu)
+        ad_fake_loss = nn.functional.binary_cross_entropy(out_fake, all0)
+        ad_true_loss = nn.functional.binary_cross_entropy(out_real, all1)
+        loss_D_gan += ad_true_loss + ad_fake_loss
+      loss_D_gp = 0
+
     loss_D_cls = self.cls_loss(pred_real_cls, self.c_org)
     loss_D = loss_D_gan + self.opts.lambda_cls * loss_D_cls 
+    if self.iswgan:
+      loss_D += 10*loss_D_gp
     loss_D.backward()
-    return loss_D_gan, loss_D_cls
+    return loss_D_gan, loss_D_cls, loss_D_gp
 
   def update_EG(self):
     # update G, Ec, Ea
@@ -451,11 +484,14 @@ class MD_multi(nn.Module):
 
     # Ladv for generator
     pred_fake, pred_fake_cls = self.dis1.forward(self.fake_encoded_img)
-    loss_G_GAN = 0
-    for out_a in pred_fake:
-      outputs_fake = nn.functional.sigmoid(out_a)
-      all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
-      loss_G_GAN += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
+    if self.iswgan:
+      loss_G_GAN = -torch.mean(pred_fake)
+    else:
+      loss_G_GAN = 0
+      for out_a in pred_fake:
+        outputs_fake = nn.functional.sigmoid(out_a)
+        all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
+        loss_G_GAN += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
    
     # classification
     loss_G_cls = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls
@@ -499,11 +535,14 @@ class MD_multi(nn.Module):
   def backward_G_alone(self):
     # Ladv for generator
     pred_fake, pred_fake_cls = self.dis2.forward(self.fake_random_img)
-    loss_G_GAN2 = 0
-    for out_a in pred_fake:
-      outputs_fake = nn.functional.sigmoid(out_a)
-      all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
-      loss_G_GAN2 += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
+    if self.iswgan:
+      loss_G_GAN2 = -torch.mean(pred_fake)
+    else:
+      loss_G_GAN2 = 0
+      for out_a in pred_fake:
+        outputs_fake = nn.functional.sigmoid(out_a)
+        all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
+        loss_G_GAN2 += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
 
     # classification
     loss_G_cls2 = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls
@@ -526,6 +565,20 @@ class MD_multi(nn.Module):
     mu_2 = torch.pow(mu, 2)
     encoding_loss = torch.mean(mu_2)
     return encoding_loss
+
+  def gradient_penalty(self, y, x):
+    """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
+    weight = torch.ones(y.size()).to(self.gpu)
+    dydx = torch.autograd.grad(outputs=y,
+                               inputs=x,
+                               grad_outputs=weight,
+                               retain_graph=True,
+                               create_graph=True,
+                               only_inputs=True)[0]
+
+    dydx = dydx.view(dydx.size(0), -1)
+    dydx_l2norm = torch.sqrt(torch.sum(dydx**2, dim=1))
+    return torch.mean((dydx_l2norm-1)**2)
 
   def update_lr(self):
     self.dis1_sch.step()

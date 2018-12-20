@@ -51,7 +51,8 @@ def main():
       if opts.isDcontent:
         if (it + 1) % opts.d_iter != 0 and it < len(train_loader) - 2:
           model.update_D_content(images, c_org)
-          #model.update_D(images, c_org, c_trg)
+          if opts.iswgan:
+            model.update_D(images, c_org, c_trg)
           continue
         else:
           model.update_D(images, c_org, c_trg)

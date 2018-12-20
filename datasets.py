@@ -1,4 +1,4 @@
-import os
+import os, sys
 import torch.utils.data as data
 from PIL import Image
 from torchvision.transforms import Compose, Resize, RandomCrop, CenterCrop, RandomHorizontalFlip, ToTensor, Normalize
@@ -72,3 +72,47 @@ class dataset_multi(data.Dataset):
 
   def __len__(self):
     return self.dataset_size
+
+
+class dataset_single(data.Dataset):
+  def __init__(self, opts, setname, input_dim):
+    self.dataroot = opts.dataroot
+    images = os.listdir(os.path.join(self.dataroot, opts.phase + setname))
+    self.img = [os.path.join(self.dataroot, opts.phase + setname, x) for x in images]
+    self.size = len(self.img)
+    self.input_dim = input_dim
+
+    self.c_org = np.zeros((3,))
+    if setname == 'A':
+      self.c_org[0] = 1
+    elif setname == 'B':
+      self.c_org[1] = 1
+    elif setname == 'C':
+      self.c_org[2] = 1
+    else:
+      print('UNKNOWN SETNAME')
+      sys.exit()
+
+    # setup image transformation
+    transforms = [Resize((opts.resize_size, opts.resize_size), Image.BICUBIC)]
+    transforms.append(CenterCrop(opts.crop_size))
+    transforms.append(ToTensor())
+    transforms.append(Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
+    self.transforms = Compose(transforms)
+    print('%s: %d images'%(setname, self.size))
+    return
+
+  def __getitem__(self, index):
+    data = self.load_img(self.img[index], self.input_dim)
+    return data
+
+  def load_img(self, img_name, input_dim):
+    img = Image.open(img_name).convert('RGB')
+    img = self.transforms(img)
+    if input_dim == 1:
+      img = img[0, ...] * 0.299 + img[1, ...] * 0.587 + img[2, ...] * 0.114
+      img = img.unsqueeze(0)
+    return img, self.c_org
+
+  def __len__(self):
+    return self.size

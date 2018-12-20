@@ -21,6 +21,19 @@ def save_imgs(imgs, names, path):
     img = Image.fromarray(img)
     img.save(os.path.join(path, name + '.png'))
 
+def save_concat_imgs(imgs, names, path):
+  if not os.path.exists(path):
+    os.mkdir(path)
+  widths, heights = zip(*(i.size for i in images))
+  total_width = sum(widths)
+  max_height = max(heights)
+  new_im = Image.new('RGB', (total_width, max_height))
+  x_offset = 0
+  for im in images:
+    new_im.paste(im, (x_offset,0))
+    x_offset += im.size[0]
+  new_im.save(os.path.join(path, name + '.png'))
+
 class Saver():
   def __init__(self, opts):
     self.display_dir = os.path.join(opts.display_dir, opts.name)
