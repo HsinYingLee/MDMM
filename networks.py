@@ -192,14 +192,14 @@ class MD_Dis(nn.Module):
     return out, out_cls.view(out_cls.size(0), out_cls.size(1))
 
 class MD_Dis_content(nn.Module):
-  def __init__(self):
+  def __init__(self, c_dim=3):
     super(MD_Dis_content, self).__init__()
     model = []
     model += [LeakyReLUConv2d(256, 256, kernel_size=7, stride=2, padding=1, norm='Instance')]
     model += [LeakyReLUConv2d(256, 256, kernel_size=7, stride=2, padding=1, norm='Instance')]
     model += [LeakyReLUConv2d(256, 256, kernel_size=7, stride=2, padding=1, norm='Instance')]
     model += [LeakyReLUConv2d(256, 256, kernel_size=4, stride=1, padding=0)]
-    model += [nn.Conv2d(256, 3, kernel_size=1, stride=1, padding=0)]
+    model += [nn.Conv2d(256, c_dim, kernel_size=1, stride=1, padding=0)]
     self.model = nn.Sequential(*model)
 
   def forward(self, x):

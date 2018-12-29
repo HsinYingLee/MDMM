@@ -9,6 +9,7 @@ import torch
 class dataset_multi(data.Dataset):
   def __init__(self, opts):
     self.dataroot = opts.dataroot
+    self.num_domains = opts.num_domains
 
     # A
     images_A = os.listdir(os.path.join(self.dataroot, opts.phase + 'A'))
@@ -18,17 +19,25 @@ class dataset_multi(data.Dataset):
     images_B = os.listdir(os.path.join(self.dataroot, opts.phase + 'B'))
     self.B = [os.path.join(self.dataroot, opts.phase + 'B', x) for x in images_B]
 
-    # B
+    # C
     images_C = os.listdir(os.path.join(self.dataroot, opts.phase + 'C'))
     self.C = [os.path.join(self.dataroot, opts.phase + 'C', x) for x in images_C]
 
     self.A_size = len(self.A)
     self.B_size = len(self.B)
     self.C_size = len(self.C)
-    self.dataset_size = max(self.A_size, self.B_size, self.C_size)
     self.input_dim_A = opts.input_dim_a
     self.input_dim_B = opts.input_dim_b
     self.input_dim_C = opts.input_dim_c
+    self.dataset_size = max(self.A_size, self.B_size, self.C_size)
+
+    #D
+    if self.num_domains == 4:
+      images_D = os.listdir(os.path.join(self.dataroot, opts.phase + 'D'))
+      self.D = [os.path.join(self.dataroot, opts.phase + 'D', x) for x in images_D]
+      self.D_size = len(self.D)
+      self.input_dim_D = opts.input_dim_c
+      self.dataset_size = max(self.D_size, self.dataset_size)
 
     # setup image transformation
     transforms = [Resize((opts.resize_size, opts.resize_size), Image.BICUBIC)]
@@ -41,25 +50,45 @@ class dataset_multi(data.Dataset):
     transforms.append(ToTensor())
     transforms.append(Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
     self.transforms = Compose(transforms)
-    print('A: %d, B: %d, C: %d images'%(self.A_size, self.B_size, self.C_size))
+    if self.num_domains == 4:
+      print('A: %d, B: %d, C: %d, D: %d images'%(self.A_size, self.B_size, self.C_size, self.D_size))
+    else:
+      print('A: %d, B: %d, C: %d images'%(self.A_size, self.B_size, self.C_size))
     return
 
   def __getitem__(self, index):
-    cls = random.randint(0,2)
-    c_org = np.zeros((3,))
-    c_trg = np.zeros((3,))
+    cls = random.randint(0,self.num_domains-1)
+    c_org = np.zeros((self.num_domains,))
+    c_trg = np.zeros((self.num_domains,))
     if cls == 0:
       data = self.load_img(self.A[random.randint(0, self.A_size - 1)], self.input_dim_A)
       c_org[0] = 1
-      c_trg[random.choice([1,2])] = 1
+      if self.num_domains==4:
+        c_trg[random.choice([1,2,3])] = 1
+      else:
+        c_trg[random.choice([1,2])] = 1
     elif cls == 1:
       data = self.load_img(self.B[random.randint(0, self.B_size - 1)], self.input_dim_B)
       c_org[1] = 1
-      c_trg[random.choice([0,2])] = 1
-    else:
+      if self.num_domains==4:
+        c_trg[random.choice([0,2,3])] = 1
+      else:
+        c_trg[random.choice([0,2])] = 1
+    elif cls == 2:
       data = self.load_img(self.C[random.randint(0, self.C_size - 1)], self.input_dim_C)
       c_org[2] = 1
-      c_trg[random.choice([0,1])] = 1
+      if self.num_domains==4:
+        c_trg[random.choice([0,1,3])] = 1
+      else:
+        c_trg[random.choice([0,1])] = 1
+    else:
+      data = self.load_img(self.D[random.randint(0, self.D_size - 1)], self.input_dim_D)
+      c_org[3] = 1
+      if self.num_domains==4:
+        c_trg[random.choice([0,1,2])] = 1
+      else:
+        c_trg[random.choice([0,1])] = 1
+
     return data, torch.FloatTensor(c_org), torch.FloatTensor(c_trg)
 
   def load_img(self, img_name, input_dim):

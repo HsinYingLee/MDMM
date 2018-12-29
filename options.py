@@ -41,6 +41,7 @@ class TrainOptions():
     self.parser.add_argument('--lambda_cls', type=float, default=1.0)
     self.parser.add_argument('--isDcontent', action='store_true')
     self.parser.add_argument('--iswgan', action='store_true')
+    self.parser.add_argument('--num_domains', type=int, default=3)
 
   def parse(self):
     self.opt = self.parser.parse_args()
