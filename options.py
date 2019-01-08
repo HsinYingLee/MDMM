@@ -10,9 +10,7 @@ class TrainOptions():
     self.parser.add_argument('--batch_size', type=int, default=2, help='batch size')
     self.parser.add_argument('--resize_size', type=int, default=256, help='resized image size for training')
     self.parser.add_argument('--crop_size', type=int, default=216, help='cropped image size for training')
-    self.parser.add_argument('--input_dim_a', type=int, default=3, help='# of input channels for domain A')
-    self.parser.add_argument('--input_dim_b', type=int, default=3, help='# of input channels for domain B')
-    self.parser.add_argument('--input_dim_c', type=int, default=3, help='# of input channels for domain C')
+    self.parser.add_argument('--input_dim', type=int, default=3, help='# of input channels for domain A')
     self.parser.add_argument('--nThreads', type=int, default=8, help='# of threads for data loader')
     self.parser.add_argument('--no_flip', action='store_true', help='specified if no flipping')
 
@@ -39,6 +37,7 @@ class TrainOptions():
 
     self.parser.add_argument('--lambda_rec', type=float, default=10)
     self.parser.add_argument('--lambda_cls', type=float, default=1.0)
+    self.parser.add_argument('--lambda_cls_G', type=float, default=5.0)
     self.parser.add_argument('--isDcontent', action='store_true')
     self.parser.add_argument('--iswgan', action='store_true')
     self.parser.add_argument('--num_domains', type=int, default=3)
@@ -61,20 +60,22 @@ class TestOptions():
     self.parser.add_argument('--resize_size', type=int, default=256, help='resized image size for training')
     self.parser.add_argument('--crop_size', type=int, default=216, help='cropped image size for training')
     self.parser.add_argument('--nThreads', type=int, default=4, help='for data loader')
-    self.parser.add_argument('--input_dim_a', type=int, default=3, help='# of input channels for domain A')
-    self.parser.add_argument('--input_dim_b', type=int, default=3, help='# of input channels for domain B')
-    self.parser.add_argument('--input_dim_c', type=int, default=3, help='# of input channels for domain B')
+    self.parser.add_argument('--input_dim', type=int, default=3, help='# of input channels for domain A')
     self.parser.add_argument('--a2b', type=int, default=1, help='translation direction, 1 for a2b, 0 for b2a')
 
     # ouptput related
     self.parser.add_argument('--num', type=int, default=5, help='number of outputs per image')
     self.parser.add_argument('--name', type=str, default='trial', help='folder name to save outputs')
-    self.parser.add_argument('--result_dir', type=str, default='../outputs', help='path for saving result images and models')
+    self.parser.add_argument('--result_dir', type=str, default='./outputs', help='path for saving result images and models')
 
     # model related
     self.parser.add_argument('--concat', type=int, default=1, help='concatenate attribute features for translation, set 0 for using feature-wise transform')
     self.parser.add_argument('--resume', type=str, required=True, help='specified the dir of saved models for resume the training')
     self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
+
+    self.parser.add_argument('--num_domains', type=int, default=3)
+    self.parser.add_argument('--isDcontent', action='store_true')
+    self.parser.add_argument('--iswgan', action='store_true')
 
   def parse(self):
     self.opt = self.parser.parse_args()

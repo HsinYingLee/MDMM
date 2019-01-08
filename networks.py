@@ -158,6 +158,47 @@ class MD_G_multi_concat(nn.Module):
     out4 = self.dec4(x_and_z4)
     return out4
 
+class MD_G_multi(nn.Module):
+  def __init__(self, output_dim, c_dim=3, nz=8):
+    super(G, self).__init__()
+    self.nz = nz
+    ini_tch = 256
+    tch_add = ini_tch
+    tch = ini_tch
+    self.tch_add = tch_add
+    self.dec1 = MisINSResBlock(tch, tch_add)
+    self.dec2 = MisINSResBlock(tch, tch_add)
+    self.dec3 = MisINSResBlock(tch, tch_add)
+    self.dec4 = MisINSResBlock(tch, tch_add)
+
+    dec5 = []
+    dec5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
+    tch = tch//2
+    dec5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
+    tch = tch//2
+    dec5 += [nn.ConvTranspose2d(tch, output_dim_a, kernel_size=1, stride=1, padding=0)]
+    dec5 += [nn.Tanh()]
+    self.decA5 = nn.Sequential(*dec5)
+
+    self.mlp = nn.Sequential(
+        nn.Linear(nz+c_dim, 256),
+        nn.ReLU(inplace=True),
+        nn.Linear(256, 256),
+        nn.ReLU(inplace=True),
+        nn.Linear(256, tch_add*4))
+    return
+
+  def forward(self, x, z, c):
+    z_c = torch.cat([c, z], 1)
+    z_c = self.mlpA(z_c)
+    z1, z2, z3, z4 = torch.split(z_c, self.tch_add, dim=1)
+    z1, z2, z3, z4 = z1.contiguous(), z2.contiguous(), z3.contiguous(), z4.contiguous()
+    out1 = self.dec1(x, z1)
+    out2 = self.dec2(out1, z2)
+    out3 = self.dec3(out2, z3)
+    out4 = self.dec4(out3, z4)
+    out = self.decA5(out4)
+    return out
 
 class MD_Dis(nn.Module):
   def __init__(self, input_dim, norm='None', sn=False, c_dim=3):
@@ -207,400 +248,6 @@ class MD_Dis_content(nn.Module):
     out = out.view(out.size(0), out.size(1))
     return out
 
-####################################################################
-#------------------------- Discriminators --------------------------
-####################################################################
-class Dis_content(nn.Module):
-  def __init__(self):
-    super(Dis_content, self).__init__()
-    model = []
-    model += [LeakyReLUConv2d(256, 256, kernel_size=7, stride=2, padding=1, norm='Instance')]
-    model += [LeakyReLUConv2d(256, 256, kernel_size=7, stride=2, padding=1, norm='Instance')]
-    model += [LeakyReLUConv2d(256, 256, kernel_size=7, stride=2, padding=1, norm='Instance')]
-    model += [LeakyReLUConv2d(256, 256, kernel_size=4, stride=1, padding=0)]
-    model += [nn.Conv2d(256, 1, kernel_size=1, stride=1, padding=0)]
-    self.model = nn.Sequential(*model)
-
-  def forward(self, x):
-    out = self.model(x)
-    out = out.view(-1)
-    outs = []
-    outs.append(out)
-    return outs
-
-class MultiScaleDis(nn.Module):
-  def __init__(self, input_dim, n_scale=3, n_layer=4, norm='None', sn=False):
-    super(MultiScaleDis, self).__init__()
-    ch = 64
-    self.downsample = nn.AvgPool2d(3, stride=2, padding=1, count_include_pad=False)
-    self.Diss = nn.ModuleList()
-    for _ in range(n_scale):
-      self.Diss.append(self._make_net(ch, input_dim, n_layer, norm, sn))
-
-  def _make_net(self, ch, input_dim, n_layer, norm, sn):
-    model = []
-    model += [LeakyReLUConv2d(input_dim, ch, 4, 2, 1, norm, sn)]
-    tch = ch
-    for _ in range(1, n_layer):
-      model += [LeakyReLUConv2d(tch, tch * 2, 4, 2, 1, norm, sn)]
-      tch *= 2
-    if sn:
-      model += [spectral_norm(nn.Conv2d(tch, 1, 1, 1, 0))]
-    else:
-      model += [nn.Conv2d(tch, 1, 1, 1, 0)]
-    return nn.Sequential(*model)
-
-  def forward(self, x):
-    outs = []
-    for Dis in self.Diss:
-      outs.append(Dis(x))
-      x = self.downsample(x)
-    return outs
-
-class Dis(nn.Module):
-  def __init__(self, input_dim, norm='None', sn=False):
-    super(Dis, self).__init__()
-    ch = 64
-    n_layer = 6
-    self.model = self._make_net(ch, input_dim, n_layer, norm, sn)
-
-  def _make_net(self, ch, input_dim, n_layer, norm, sn):
-    model = []
-    model += [LeakyReLUConv2d(input_dim, ch, kernel_size=3, stride=2, padding=1, norm=norm, sn=sn)] #16
-    tch = ch
-    for i in range(1, n_layer-1):
-      model += [LeakyReLUConv2d(tch, tch * 2, kernel_size=3, stride=2, padding=1, norm=norm, sn=sn)] # 8
-      tch *= 2
-    model += [LeakyReLUConv2d(tch, tch * 2, kernel_size=3, stride=2, padding=1, norm='None', sn=sn)] # 2
-    tch *= 2
-    if sn:
-      model += [spectral_norm(nn.Conv2d(tch, 1, kernel_size=1, stride=1, padding=0))]  # 1
-    else:
-      model += [nn.Conv2d(tch, 1, kernel_size=1, stride=1, padding=0)]  # 1
-    return nn.Sequential(*model)
-
-  def cuda(self,gpu):
-    self.model.cuda(gpu)
-
-  def forward(self, x_A):
-    out_A = self.model(x_A)
-    out_A = out_A.view(-1)
-    outs_A = []
-    outs_A.append(out_A)
-    return outs_A
-
-####################################################################
-#---------------------------- Encoders -----------------------------
-####################################################################
-class E_content(nn.Module):
-  def __init__(self, input_dim_a, input_dim_b):
-    super(E_content, self).__init__()
-    encA_c = []
-    tch = 64
-    encA_c += [LeakyReLUConv2d(input_dim_a, tch, kernel_size=7, stride=1, padding=3)]
-    for i in range(1, 3):
-      encA_c += [ReLUINSConv2d(tch, tch * 2, kernel_size=3, stride=2, padding=1)]
-      tch *= 2
-    for i in range(0, 3):
-      encA_c += [INSResBlock(tch, tch)]
-
-    encB_c = []
-    tch = 64
-    encB_c += [LeakyReLUConv2d(input_dim_b, tch, kernel_size=7, stride=1, padding=3)]
-    for i in range(1, 3):
-      encB_c += [ReLUINSConv2d(tch, tch * 2, kernel_size=3, stride=2, padding=1)]
-      tch *= 2
-    for i in range(0, 3):
-      encB_c += [INSResBlock(tch, tch)]
-
-    enc_share = []
-    for i in range(0, 1):
-      enc_share += [INSResBlock(tch, tch)]
-      enc_share += [GaussianNoiseLayer()]
-      self.conv_share = nn.Sequential(*enc_share)
-
-    self.convA = nn.Sequential(*encA_c)
-    self.convB = nn.Sequential(*encB_c)
-
-  def forward(self, xa, xb):
-    outputA = self.convA(xa)
-    outputB = self.convB(xb)
-    outputA = self.conv_share(outputA)
-    outputB = self.conv_share(outputB)
-    return outputA, outputB
-
-  def forward_a(self, xa):
-    outputA = self.convA(xa)
-    outputA = self.conv_share(outputA)
-    return outputA
-
-  def forward_b(self, xb):
-    outputB = self.convB(xb)
-    outputB = self.conv_share(outputB)
-    return outputB
-
-class E_attr(nn.Module):
-  def __init__(self, input_dim_a, input_dim_b, output_nc=8):
-    super(E_attr, self).__init__()
-    dim = 64
-    self.model_a = nn.Sequential(
-        nn.ReflectionPad2d(3),
-        nn.Conv2d(input_dim_a, dim, 7, 1),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim, dim*2, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*2, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*4, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*4, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.AdaptiveAvgPool2d(1),
-        nn.Conv2d(dim*4, output_nc, 1, 1, 0))
-    self.model_b = nn.Sequential(
-        nn.ReflectionPad2d(3),
-        nn.Conv2d(input_dim_b, dim, 7, 1),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim, dim*2, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*2, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*4, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.ReflectionPad2d(1),
-        nn.Conv2d(dim*4, dim*4, 4, 2),
-        nn.ReLU(inplace=True),
-        nn.AdaptiveAvgPool2d(1),
-        nn.Conv2d(dim*4, output_nc, 1, 1, 0))
-    return
-
-  def forward(self, xa, xb):
-    xa = self.model_a(xa)
-    xb = self.model_b(xb)
-    output_A = xa.view(xa.size(0), -1)
-    output_B = xb.view(xb.size(0), -1)
-    return output_A, output_B
-
-  def forward_a(self, xa):
-    xa = self.model_a(xa)
-    output_A = xa.view(xa.size(0), -1)
-    return output_A
-
-  def forward_b(self, xb):
-    xb = self.model_b(xb)
-    output_B = xb.view(xb.size(0), -1)
-    return output_B
-
-class E_attr_concat(nn.Module):
-  def __init__(self, input_dim_a, input_dim_b, output_nc=8, norm_layer=None, nl_layer=None):
-    super(E_attr_concat, self).__init__()
-
-    ndf = 64
-    n_blocks=4
-    max_ndf = 4
-
-    conv_layers_A = [nn.ReflectionPad2d(1)]
-    conv_layers_A += [nn.Conv2d(input_dim_a, ndf, kernel_size=4, stride=2, padding=0, bias=True)]
-    for n in range(1, n_blocks):
-      input_ndf = ndf * min(max_ndf, n)  # 2**(n-1)
-      output_ndf = ndf * min(max_ndf, n+1)  # 2**n
-      conv_layers_A += [BasicBlock(input_ndf, output_ndf, norm_layer, nl_layer)]
-    conv_layers_A += [nl_layer(), nn.AdaptiveAvgPool2d(1)] # AvgPool2d(13)
-    self.fc_A = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.fcVar_A = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.conv_A = nn.Sequential(*conv_layers_A)
-
-    conv_layers_B = [nn.ReflectionPad2d(1)]
-    conv_layers_B += [nn.Conv2d(input_dim_b, ndf, kernel_size=4, stride=2, padding=0, bias=True)]
-    for n in range(1, n_blocks):
-      input_ndf = ndf * min(max_ndf, n)  # 2**(n-1)
-      output_ndf = ndf * min(max_ndf, n+1)  # 2**n
-      conv_layers_B += [BasicBlock(input_ndf, output_ndf, norm_layer, nl_layer)]
-    conv_layers_B += [nl_layer(), nn.AdaptiveAvgPool2d(1)] # AvgPool2d(13)
-    self.fc_B = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.fcVar_B = nn.Sequential(*[nn.Linear(output_ndf, output_nc)])
-    self.conv_B = nn.Sequential(*conv_layers_B)
-
-  def forward(self, xa, xb):
-    x_conv_A = self.conv_A(xa)
-    conv_flat_A = x_conv_A.view(xa.size(0), -1)
-    output_A = self.fc_A(conv_flat_A)
-    outputVar_A = self.fcVar_A(conv_flat_A)
-    x_conv_B = self.conv_B(xb)
-    conv_flat_B = x_conv_B.view(xb.size(0), -1)
-    output_B = self.fc_B(conv_flat_B)
-    outputVar_B = self.fcVar_B(conv_flat_B)
-    return output_A, outputVar_A, output_B, outputVar_B
-
-  def forward_a(self, xa):
-    x_conv_A = self.conv_A(xa)
-    conv_flat_A = x_conv_A.view(xa.size(0), -1)
-    output_A = self.fc_A(conv_flat_A)
-    outputVar_A = self.fcVar_A(conv_flat_A)
-    return output_A, outputVar_A
-
-  def forward_b(self, xb):
-    x_conv_B = self.conv_B(xb)
-    conv_flat_B = x_conv_B.view(xb.size(0), -1)
-    output_B = self.fc_B(conv_flat_B)
-    outputVar_B = self.fcVar_B(conv_flat_B)
-    return output_B, outputVar_B
-
-####################################################################
-#--------------------------- Generators ----------------------------
-####################################################################
-class G(nn.Module):
-  def __init__(self, output_dim_a, output_dim_b, nz):
-    super(G, self).__init__()
-    self.nz = nz
-    ini_tch = 256
-    tch_add = ini_tch
-    tch = ini_tch
-    self.tch_add = tch_add
-    self.decA1 = MisINSResBlock(tch, tch_add)
-    self.decA2 = MisINSResBlock(tch, tch_add)
-    self.decA3 = MisINSResBlock(tch, tch_add)
-    self.decA4 = MisINSResBlock(tch, tch_add)
-
-    decA5 = []
-    decA5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
-    tch = tch//2
-    decA5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
-    tch = tch//2
-    decA5 += [nn.ConvTranspose2d(tch, output_dim_a, kernel_size=1, stride=1, padding=0)]
-    decA5 += [nn.Tanh()]
-    self.decA5 = nn.Sequential(*decA5)
-
-    tch = ini_tch
-    self.decB1 = MisINSResBlock(tch, tch_add)
-    self.decB2 = MisINSResBlock(tch, tch_add)
-    self.decB3 = MisINSResBlock(tch, tch_add)
-    self.decB4 = MisINSResBlock(tch, tch_add)
-    decB5 = []
-    decB5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
-    tch = tch//2
-    decB5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
-    tch = tch//2
-    decB5 += [nn.ConvTranspose2d(tch, output_dim_b, kernel_size=1, stride=1, padding=0)]
-    decB5 += [nn.Tanh()]
-    self.decB5 = nn.Sequential(*decB5)
-
-    self.mlpA = nn.Sequential(
-        nn.Linear(8, 256),
-        nn.ReLU(inplace=True),
-        nn.Linear(256, 256),
-        nn.ReLU(inplace=True),
-        nn.Linear(256, tch_add*4))
-    self.mlpB = nn.Sequential(
-        nn.Linear(8, 256),
-        nn.ReLU(inplace=True),
-        nn.Linear(256, 256),
-        nn.ReLU(inplace=True),
-        nn.Linear(256, tch_add*4))
-    return
-
-  def forward_a(self, x, z):
-    z = self.mlpA(z)
-    z1, z2, z3, z4 = torch.split(z, self.tch_add, dim=1)
-    z1, z2, z3, z4 = z1.contiguous(), z2.contiguous(), z3.contiguous(), z4.contiguous()
-    out1 = self.decA1(x, z1)
-    out2 = self.decA2(out1, z2)
-    out3 = self.decA3(out2, z3)
-    out4 = self.decA4(out3, z4)
-    out = self.decA5(out4)
-    return out
-
-  def forward_b(self, x, z):
-    z = self.mlpB(z)
-    z1, z2, z3, z4 = torch.split(z, self.tch_add, dim=1)
-    z1, z2, z3, z4 = z1.contiguous(), z2.contiguous(), z3.contiguous(), z4.contiguous()
-    out1 = self.decB1(x, z1)
-    out2 = self.decB2(out1, z2)
-    out3 = self.decB3(out2, z3)
-    out4 = self.decB4(out3, z4)
-    out = self.decB5(out4)
-    return out
-
-class G_concat(nn.Module):
-  def __init__(self, output_dim_a, output_dim_b, nz):
-    super(G_concat, self).__init__()
-    self.nz = nz
-    tch = 256
-    dec_share = []
-    dec_share += [INSResBlock(tch, tch)]
-    self.dec_share = nn.Sequential(*dec_share)
-    tch = 256+self.nz
-    decA1 = []
-    for i in range(0, 3):
-      decA1 += [INSResBlock(tch, tch)]
-    tch = tch + self.nz
-    decA2 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
-    tch = tch//2
-    tch = tch + self.nz
-    decA3 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
-    tch = tch//2
-    tch = tch + self.nz
-    decA4 = [nn.ConvTranspose2d(tch, output_dim_a, kernel_size=1, stride=1, padding=0)]+[nn.Tanh()]
-    self.decA1 = nn.Sequential(*decA1)
-    self.decA2 = nn.Sequential(*[decA2])
-    self.decA3 = nn.Sequential(*[decA3])
-    self.decA4 = nn.Sequential(*decA4)
-
-    tch = 256+self.nz
-    decB1 = []
-    for i in range(0, 3):
-      decB1 += [INSResBlock(tch, tch)]
-    tch = tch + self.nz
-    decB2 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
-    tch = tch//2
-    tch = tch + self.nz
-    decB3 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
-    tch = tch//2
-    tch = tch + self.nz
-    decB4 = [nn.ConvTranspose2d(tch, output_dim_b, kernel_size=1, stride=1, padding=0)]+[nn.Tanh()]
-    self.decB1 = nn.Sequential(*decB1)
-    self.decB2 = nn.Sequential(*[decB2])
-    self.decB3 = nn.Sequential(*[decB3])
-    self.decB4 = nn.Sequential(*decB4)
-
-  def forward_a(self, x, z):
-    out0 = self.dec_share(x)
-    z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
-    x_and_z = torch.cat([out0, z_img], 1)
-    out1 = self.decA1(x_and_z)
-    z_img2 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out1.size(2), out1.size(3))
-    x_and_z2 = torch.cat([out1, z_img2], 1)
-    out2 = self.decA2(x_and_z2)
-    z_img3 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out2.size(2), out2.size(3))
-    x_and_z3 = torch.cat([out2, z_img3], 1)
-    out3 = self.decA3(x_and_z3)
-    z_img4 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out3.size(2), out3.size(3))
-    x_and_z4 = torch.cat([out3, z_img4], 1)
-    out4 = self.decA4(x_and_z4)
-    return out4
-
-  def forward_b(self, x, z):
-    out0 = self.dec_share(x)
-    z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
-    x_and_z = torch.cat([out0,  z_img], 1)
-    out1 = self.decB1(x_and_z)
-    z_img2 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out1.size(2), out1.size(3))
-    x_and_z2 = torch.cat([out1, z_img2], 1)
-    out2 = self.decB2(x_and_z2)
-    z_img3 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out2.size(2), out2.size(3))
-    x_and_z3 = torch.cat([out2, z_img3], 1)
-    out3 = self.decB3(x_and_z3)
-    z_img4 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out3.size(2), out3.size(3))
-    x_and_z4 = torch.cat([out3, z_img4], 1)
-    out4 = self.decB4(x_and_z4)
-    return out4
 
 ####################################################################
 #------------------------- Basic Functions -------------------------

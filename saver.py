@@ -21,15 +21,17 @@ def save_imgs(imgs, names, path):
     img = Image.fromarray(img)
     img.save(os.path.join(path, name + '.png'))
 
-def save_concat_imgs(imgs, names, path):
+def save_concat_imgs(imgs, name, path):
   if not os.path.exists(path):
     os.mkdir(path)
-  widths, heights = zip(*(i.size for i in images))
+  imgs = [tensor2img(i) for i in imgs]
+  widths, heights,c = zip(*(i.shape for i in imgs))
   total_width = sum(widths)
   max_height = max(heights)
   new_im = Image.new('RGB', (total_width, max_height))
   x_offset = 0
-  for im in images:
+  for im in imgs:
+    im = Image.fromarray(im)
     new_im.paste(im, (x_offset,0))
     x_offset += im.size[0]
   new_im.save(os.path.join(path, name + '.png'))

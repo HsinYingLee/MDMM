@@ -1,6 +1,7 @@
 import networks
 import torch
 import torch.nn as nn
+import numpy as np
 
 class MD_uni(nn.Module):
   def __init__(self, opts):
@@ -311,19 +312,25 @@ class MD_multi(nn.Module):
     z = torch.randn(batchSize, nz).cuda(self.gpu)
     return z
 
-  def test_forward(self, image, c_org):
-    self.z_random = self.get_z_random(image.size(0), self.nz, 'gauss')
+  def test_forward_random(self, image):
     self.z_content = self.enc_c.forward(image)
-  
-    for i in range(3):
-      pass 
-    output_fakeA = self.gen.forward(input_content_forA, input_attr_forA, input_c_forA)
-    if a2b:
-        self.z_content = self.enc_c.forward_a(image)
-        output = self.gen.forward_b(self.z_content, self.z_random)
-    else:
-        self.z_content = self.enc_c.forward_b(image)
-        output = self.gen.forward_a(self.z_content, self.z_random)
+    outputs = []
+    for i in range(self.opts.num_domains):
+      self.z_random = self.get_z_random(image.size(0), self.nz, 'gauss')
+      c_trg = np.zeros((image.size(0),self.opts.num_domains))
+      c_trg[:,i] = 1
+      c_trg = torch.FloatTensor(c_trg).cuda()
+      output = self.gen.forward(self.z_content, self.z_random, c_trg)
+      outputs.append(output)
+    return outputs
+
+  def test_forward_transfer(self, image, image_trg, c_trg):
+    self.z_content = self.enc_c.forward(image)
+    self.mu, self.logvar = self.enc_a.forward(self.image_trg, self.c_trg)
+    std = self.logvar.mul(0.5).exp_()
+    eps = self.get_z_random(std.size(0), std.size(1), 'gauss')
+    self.z_attr = eps.mul(std).add_(self.mu)
+    output = self.gen.forward(self.z_content, self.z_attr, c_trg)
     return output
 
   def forward(self):
@@ -495,7 +502,7 @@ class MD_multi(nn.Module):
         loss_G_GAN += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
    
     # classification
-    loss_G_cls = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls *1.0
+    loss_G_cls = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls_G
 
     # self and cross-cycle recon
     loss_G_L1_self = torch.mean(torch.abs(self.input - torch.cat((self.fake_AA_encoded, self.fake_BB_encoded), 0))) * self.opts.lambda_rec
@@ -546,14 +553,12 @@ class MD_multi(nn.Module):
         loss_G_GAN2 += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
 
     # classification
-    loss_G_cls2 = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls *1.0
+    loss_G_cls2 = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls_G
 
     # latent regression loss
     if self.concat:
       loss_z_L1_a = torch.mean(torch.abs(self.mu2_a - self.z_random)) * 10
       loss_z_L1_b = torch.mean(torch.abs(self.mu2_b - self.z_random)) * 10
-      #loss_z_L1_a = torch.mean(torch.abs(self.mu2_a - self.z_random)) * 0.5
-      #loss_z_L1_b = torch.mean(torch.abs(self.mu2_b - self.z_random)) * 0.5
     else:
       loss_z_L1_a = torch.mean(torch.abs(self.z_attr_random_a - self.z_random)) * 10
       loss_z_L1_b = torch.mean(torch.abs(self.z_attr_random_b - self.z_random)) * 10
