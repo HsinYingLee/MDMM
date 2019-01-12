@@ -1,4 +1,6 @@
-import  torch
+import numpy as np
+
+import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import functools
@@ -56,7 +58,7 @@ class MD_E_attr(nn.Module):
     c = c.view(c.size(0), c.size(1), 1, 1)
     c = c.repeat(1, 1, x.size(2), x.size(3))
     x_c = torch.cat([x, c], dim=1)
-    output = self.model_a(x_c)
+    output = self.model(x_c)
     return output.view(output.size(0), -1)
 
 class MD_E_attr_concat(nn.Module):
@@ -160,7 +162,7 @@ class MD_G_multi_concat(nn.Module):
 
 class MD_G_multi(nn.Module):
   def __init__(self, output_dim, c_dim=3, nz=8):
-    super(G, self).__init__()
+    super(MD_G_multi, self).__init__()
     self.nz = nz
     ini_tch = 256
     tch_add = ini_tch
@@ -176,7 +178,7 @@ class MD_G_multi(nn.Module):
     tch = tch//2
     dec5 += [ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
     tch = tch//2
-    dec5 += [nn.ConvTranspose2d(tch, output_dim_a, kernel_size=1, stride=1, padding=0)]
+    dec5 += [nn.ConvTranspose2d(tch, output_dim, kernel_size=1, stride=1, padding=0)]
     dec5 += [nn.Tanh()]
     self.decA5 = nn.Sequential(*dec5)
 
@@ -190,7 +192,7 @@ class MD_G_multi(nn.Module):
 
   def forward(self, x, z, c):
     z_c = torch.cat([c, z], 1)
-    z_c = self.mlpA(z_c)
+    z_c = self.mlp(z_c)
     z1, z2, z3, z4 = torch.split(z_c, self.tch_add, dim=1)
     z1, z2, z3, z4 = z1.contiguous(), z2.contiguous(), z3.contiguous(), z4.contiguous()
     out1 = self.dec1(x, z1)
@@ -201,13 +203,15 @@ class MD_G_multi(nn.Module):
     return out
 
 class MD_Dis(nn.Module):
-  def __init__(self, input_dim, norm='None', sn=False, c_dim=3):
+  def __init__(self, input_dim, norm='None', sn=False, c_dim=3, image_size=216):
     super(MD_Dis, self).__init__()
     ch = 64
     n_layer = 6
     self.model, curr_dim = self._make_net(ch, input_dim, n_layer, norm, sn)
     self.conv1 = nn.Conv2d(curr_dim, 1, kernel_size=1, stride=1, padding=1, bias=False)
-    self.conv2 = nn.Conv2d(curr_dim, c_dim, kernel_size=4, bias=False)
+    kernal_size = int(image_size/np.power(2, n_layer))
+    self.conv2 = nn.Conv2d(curr_dim, c_dim, kernel_size=kernal_size, bias=False)
+    self.pool = nn.AdaptiveAvgPool2d(1)
 
   def _make_net(self, ch, input_dim, n_layer, norm, sn):
     model = []
@@ -230,6 +234,7 @@ class MD_Dis(nn.Module):
     h = self.model(x)
     out = self.conv1(h)
     out_cls = self.conv2(h)
+    out_cls = self.pool(out_cls)
     return out, out_cls.view(out_cls.size(0), out_cls.size(1))
 
 class MD_Dis_content(nn.Module):

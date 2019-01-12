@@ -16,7 +16,7 @@ class dataset_multi(data.Dataset):
     self.images = [None]*self.num_domains
     stats = ''
     for i in range(self.num_domains):
-      img_dir = os.path.join(self.dataroot, opt.phase + domains[i])
+      img_dir = os.path.join(self.dataroot, opts.phase + domains[i])
       ilist = os.listdir(img_dir)
       self.images[i] = [os.path.join(img_dir, x) for x in ilist]
       stats += '{}: {}'.format(domains[i], len(self.images[i]))
@@ -40,8 +40,6 @@ class dataset_multi(data.Dataset):
   def __getitem__(self, index):
     cls = random.randint(0,self.num_domains-1)
     c_org = np.zeros((self.num_domains,))
-    #c_trg = np.zeros((self.num_domains,))
-
     data = self.load_img(self.images[cls][random.randint(0, len(self.images[cls]) - 1)], self.input_dim)
     c_org[cls] = 1
     return data, torch.FloatTensor(c_org)
@@ -62,7 +60,7 @@ class dataset_single(data.Dataset):
   def __init__(self, opts, domain):
     self.dataroot = opts.dataroot
     domains = [chr(i) for i in range(ord('A'),ord('Z')+1)]
-    opts.phase = 'train'
+    #opts.phase = 'train'
     images = os.listdir(os.path.join(self.dataroot, opts.phase + domains[domain]))
     self.img = [os.path.join(self.dataroot, opts.phase + domains[domain], x) for x in images]
     self.size = len(self.img)

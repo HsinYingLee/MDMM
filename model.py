@@ -252,16 +252,16 @@ class MD_multi(nn.Module):
       self.concat = False
     self.iswgan = opts.iswgan 
  
-    self.dis1 = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=opts.num_domains)
-    self.dis2 = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=opts.num_domains)
-    self.enc_c = networks.MD_E_content(opts.input_dim_a)
+    self.dis1 = networks.MD_Dis(opts.input_dim, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=opts.num_domains, image_size=opts.crop_size)
+    self.dis2 = networks.MD_Dis(opts.input_dim, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=opts.num_domains, image_size=opts.crop_size)
+    self.enc_c = networks.MD_E_content(opts.input_dim)
     if self.concat:
-      self.enc_a = networks.MD_E_attr_concat(opts.input_dim_a, output_nc=self.nz, c_dim=opts.num_domains, \
+      self.enc_a = networks.MD_E_attr_concat(opts.input_dim, output_nc=self.nz, c_dim=opts.num_domains, \
           norm_layer=None, nl_layer=networks.get_non_linearity(layer_type='lrelu'))
-      self.gen = networks.MD_G_multi_concat(opts.input_dim_a, c_dim=opts.num_domains, nz=self.nz)
+      self.gen = networks.MD_G_multi_concat(opts.input_dim, c_dim=opts.num_domains, nz=self.nz)
     else:
-      self.enc_a = networks.E_attr(opts.input_dim_a, opts.input_dim_b, self.nz)
-      self.gen = networks.MD_G_multi(opts.input_dim_a, opts.input_dim_b, nz=self.nz)
+      self.enc_a = networks.MD_E_attr(opts.input_dim, output_nc=self.nz, c_dim=opts.num_domains)
+      self.gen = networks.MD_G_multi(opts.input_dim, nz=self.nz, c_dim=opts.num_domains)
 
     self.dis1_opt = torch.optim.Adam(self.dis1.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
     self.dis2_opt = torch.optim.Adam(self.dis2.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
@@ -343,7 +343,6 @@ class MD_multi(nn.Module):
     self.real_B = self.input[half_size:]
     c_org_A = self.c_org[0:half_size]
     c_org_B = self.c_org[half_size:]
-    c_trg_a = self.c_trg
 
     # get encoded z_c
     self.real_img = torch.cat((self.real_A, self.real_B),0)
@@ -406,7 +405,7 @@ class MD_multi(nn.Module):
       self.mu2_a, self.mu2_b = torch.split(self.mu2, half_size, 0)
     else:
       self.z_attr_random = self.enc_a.forward(self.fake_random_img, self.c_org)
-      self.z_attr_random_a, self.z_attr_random_b = self.split(self.attr_random, half_size, 0)
+      self.z_attr_random_a, self.z_attr_random_b = torch.split(self.z_attr_random, half_size, 0)
 
 
   def update_D_content(self, image, c_org):
@@ -420,10 +419,9 @@ class MD_multi(nn.Module):
     nn.utils.clip_grad_norm_(self.disContent.parameters(), 5)
     self.disContent_opt.step()
 
-  def update_D(self, image, c_org, c_trg):
+  def update_D(self, image, c_org):
     self.input = image
     self.c_org = c_org
-    self.c_trg = c_trg
     self.forward()
 
     self.dis1_opt.zero_grad()
