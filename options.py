@@ -6,6 +6,7 @@ class TrainOptions():
 
     # data loader related
     self.parser.add_argument('--dataroot', type=str, required=True, help='path of data')
+    self.parser.add_argument('--num_domains', type=int, default=3)
     self.parser.add_argument('--phase', type=str, default='train', help='phase for dataloading')
     self.parser.add_argument('--batch_size', type=int, default=2, help='batch size')
     self.parser.add_argument('--resize_size', type=int, default=256, help='resized image size for training')
@@ -33,14 +34,12 @@ class TrainOptions():
     self.parser.add_argument('--n_ep_decay', type=int, default=600, help='epoch start decay learning rate, set -1 if no decay') # 200 * d_iter
     self.parser.add_argument('--resume', type=str, default=None, help='specified the dir of saved models for resume the training')
     self.parser.add_argument('--d_iter', type=int, default=3, help='# of iterations for updating content discriminator')
-    self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
-
     self.parser.add_argument('--lambda_rec', type=float, default=10)
     self.parser.add_argument('--lambda_cls', type=float, default=1.0)
     self.parser.add_argument('--lambda_cls_G', type=float, default=5.0)
     self.parser.add_argument('--isDcontent', action='store_true')
     self.parser.add_argument('--iswgan', action='store_true')
-    self.parser.add_argument('--num_domains', type=int, default=3)
+    self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
 
   def parse(self):
     self.opt = self.parser.parse_args()
@@ -56,6 +55,7 @@ class TestOptions():
 
     # data loader related
     self.parser.add_argument('--dataroot', type=str, required=True, help='path of data')
+    self.parser.add_argument('--num_domains', type=int, default=3)
     self.parser.add_argument('--phase', type=str, default='test', help='phase for dataloading')
     self.parser.add_argument('--resize_size', type=int, default=256, help='resized image size for training')
     self.parser.add_argument('--crop_size', type=int, default=216, help='cropped image size for training')
@@ -73,7 +73,6 @@ class TestOptions():
     self.parser.add_argument('--resume', type=str, required=True, help='specified the dir of saved models for resume the training')
     self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
 
-    self.parser.add_argument('--num_domains', type=int, default=3)
     self.parser.add_argument('--isDcontent', action='store_true')
     self.parser.add_argument('--iswgan', action='store_true')
 

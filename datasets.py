@@ -60,7 +60,7 @@ class dataset_single(data.Dataset):
   def __init__(self, opts, domain):
     self.dataroot = opts.dataroot
     domains = [chr(i) for i in range(ord('A'),ord('Z')+1)]
-    #opts.phase = 'train'
+    opts.phase = 'train'
     images = os.listdir(os.path.join(self.dataroot, opts.phase + domains[domain]))
     self.img = [os.path.join(self.dataroot, opts.phase + domains[domain], x) for x in images]
     self.size = len(self.img)
@@ -74,7 +74,6 @@ class dataset_single(data.Dataset):
     transforms.append(ToTensor())
     transforms.append(Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
     self.transforms = Compose(transforms)
-    print('%s: %d images'%(setname, self.size))
     return
 
   def __getitem__(self, index):

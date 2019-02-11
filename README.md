@@ -6,12 +6,31 @@ With the disentangled representation framework, we can learn diverse image-to-im
 
 ## Example Results
 
+
+### Prerequisites
+- Python 3.5 or Python 3.6
+- Pytorch 0.4.0 and torchvision (https://pytorch.org/)
+- [TensorboardX](https://github.com/lanpa/tensorboard-pytorch)
+- [Tensorflow](https://www.tensorflow.org/) (for tensorboard usage)
+- Docker file based on CUDA 9.0, CuDNN 7.1, and Ubuntu 16.04 is provided in the [[DRIT]](https://github.com/HsinYingLee/DRIT) github page.
+
 ## Usage
 - Training
-
+```
+python train.py --dataroot DATAROOT --name NAME --num_domains NUM_DOMAINS --display_dir DISPLAY_DIR --result_dir RESULT_DIR --isDcontent
+```
 - Testing
+```
+python test.py --dataroot DATAROOT --name NAME --num_domains NUM_DOMAINS --out_dir OUT_DIR --resume MODEL_DIR --num NUM_PER_IMG
+```
 
 ## Datasets
+We validate our model on two datasets:
+- art: Containing three domains: real images, Monet images, uki-yoe images. Data can be downloaded from CycleGAN [website](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix).
+- weather: Containing four domains: sunny, cloudy, snowy, and foggy. Data is randomly selected from the Image2Weather dataset [website](https://www.cs.ccu.edu.tw/~wtchu/projects/Weather/index.html).
+
+## Models
+
 
 ## Paper
 Diverse Image-to-Image Translation via Disentangled Representations<br>
