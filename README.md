@@ -33,13 +33,13 @@ We validate our model on two datasets:
 
 ## Models
 - The pretrained model on the art dataset
-'''
+```
 bash ./models/download_model.sh art
-'''
+```
 - The pretrained model on the weather dataset
-'''
+```
 bash ./models/download_model.sh art
-'''
+```
 
 ## Note
 - The feature transformation (i.e. concat 0) is not fully tested since both art and weather datasets do not require shape variations
