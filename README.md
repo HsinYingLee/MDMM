@@ -38,7 +38,7 @@ bash ./models/download_model.sh art
 ```
 - The pretrained model on the weather dataset
 ```
-bash ./models/download_model.sh art
+bash ./models/download_model.sh weather
 ```
 
 ## Note
