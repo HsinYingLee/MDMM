@@ -4,8 +4,10 @@ Pytorch implementation of multi-modality I2I translation for multi-domains. The 
 With the disentangled representation framework, we can learn diverse image-to-image translation among multiple domains.
 [[DRIT]](https://github.com/HsinYingLee/DRIT)
 
+Contact: Hsin-Ying Lee (hlee246@ucmerced.edu) and Hung-Yu Tseng (htseng6@ucmerced.edu)
+
 ## Example Results
-<img src='imgs/MDMM_results2.pdf' width="800px">
+<img src='imgs/MDMM_results2.png' width="800px">
 
 ### Prerequisites
 - Python 3.5 or Python 3.6
@@ -38,6 +40,11 @@ bash ./models/download_model.sh art
 '''
 bash ./models/download_model.sh art
 '''
+
+## Note
+- The feature transformation (i.e. concat 0) is not fully tested since both art and weather datasets do not require shape variations
+- The hyper-parameters matter and are task-dependent. They are not carefully selected yet.
+- Feel free to contact the author for any potential improvement of the code.
 
 ## Paper
 Diverse Image-to-Image Translation via Disentangled Representations<br>
