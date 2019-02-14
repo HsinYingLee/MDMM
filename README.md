@@ -5,7 +5,7 @@ With the disentangled representation framework, we can learn diverse image-to-im
 [[DRIT]](https://github.com/HsinYingLee/DRIT)
 
 ## Example Results
-<img src='imgs/MDMM_results2.png' width="800px">
+<img src='imgs/MDMM_results2.pdf' width="800px">
 
 ### Prerequisites
 - Python 3.5 or Python 3.6
