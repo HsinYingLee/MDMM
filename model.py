@@ -3,239 +3,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-class MD_uni(nn.Module):
-  def __init__(self, opts):
-    super(MD_uni, self).__init__()
-    self.opts = opts
-    lr = 0.0001
-    lr_dcontent = lr/2.5 
-
-    self.isDcontent = opts.isDcontent
-  
-    self.dis = networks.MD_Dis(opts.input_dim_a, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=3)
-    self.enc_c = networks.MD_E_content(opts.input_dim_a)
-    self.gen = networks.MD_G_uni(opts.input_dim_a, c_dim=3)
-    self.dis_opt = torch.optim.Adam(self.dis.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
-    self.enc_c_opt = torch.optim.Adam(self.enc_c.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
-    self.gen_opt = torch.optim.Adam(self.gen.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
-    #if self.isDcontent:
-    self.disContent = networks.MD_Dis_content() 
-    self.disContent_opt = torch.optim.Adam(self.disContent.parameters(), lr=lr_dcontent, betas=(0.5, 0.999), weight_decay=0.0001)
-
-    self.cls_loss = nn.BCEWithLogitsLoss()
-
-  def initialize(self):
-    self.dis.apply(networks.gaussian_weights_init)
-    self.disContent.apply(networks.gaussian_weights_init)
-    self.gen.apply(networks.gaussian_weights_init)
-    self.enc_c.apply(networks.gaussian_weights_init)
-
-  def set_scheduler(self, opts, last_ep=0):
-    self.dis_sch = networks.get_scheduler(self.dis_opt, opts, last_ep)
-    self.disContent_sch = networks.get_scheduler(self.dis_opt, opts, last_ep)
-    self.enc_c_sch = networks.get_scheduler(self.enc_c_opt, opts, last_ep)
-    self.gen_sch = networks.get_scheduler(self.gen_opt, opts, last_ep)
-
-  def setgpu(self, gpu):
-    self.gpu = gpu
-    self.dis.cuda(self.gpu)
-    self.enc_c.cuda(self.gpu)
-    self.gen.cuda(self.gpu)
-    if self.isDcontent:
-      self.disContent.cuda(self.gpu)
-
-  def forward(self):
-    # input images
-    self.real_img = self.input
-    c_org = self.c_org
-    c_trg = self.c_trg
-
-    # get encoded z_c
-    self.z_content = self.enc_c.forward(self.real_img)
-
-    # reconstruct
-    self.fake_recon = self.gen(self.z_content, c_org)
-
-    # translation
-    self.fake_img = self.gen(self.z_content, c_trg)
-
-    # for display
-    self.image_display = torch.cat((self.real_img[0:1].detach().cpu(), self.fake_recon[0:1].detach().cpu(), \
-                                    self.fake_img[0:1].detach().cpu()), dim=0)
-
-
-  def update_D_content(self, image, c_org):
-    self.input = image
-    self.z_content = self.enc_c.forward(self.input)
-    self.disContent_opt.zero_grad()
-    pred_cls = self.disContent.forward(self.z_content.detach())
-    loss_D_content = self.cls_loss(pred_cls, c_org)
-    loss_D_content.backward()
-    self.disContent_loss = loss_D_content.item()
-    nn.utils.clip_grad_norm_(self.disContent.parameters(), 5)
-    self.disContent_opt.step()
-
-  def update_D(self, image, c_org, c_trg):
-    self.input = image
-    self.c_org = c_org
-    self.c_trg = c_trg
-    self.forward()
-
-    self.dis_opt.zero_grad()
-    self.D_gan_loss, self.D_cls_loss, self.D_gp_loss = self.backward_D(self.dis, self.real_img, self.fake_img)
-    self.dis_opt.step()
-
-  def backward_D(self, netD, real, fake):
-    pred_fake, pred_fake_cls = netD.forward(fake.detach())
-    pred_real, pred_real_cls = netD.forward(real)
-    '''
-    loss_D_gan = 0
-    for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
-      out_fake = nn.functional.sigmoid(out_a)
-      out_real = nn.functional.sigmoid(out_b)
-      all0 = torch.zeros_like(out_fake).cuda(self.gpu)
-      all1 = torch.ones_like(out_real).cuda(self.gpu)
-      ad_fake_loss = nn.functional.binary_cross_entropy(out_fake, all0)
-      ad_true_loss = nn.functional.binary_cross_entropy(out_real, all1)
-      loss_D_gan += ad_true_loss + ad_fake_loss
-    '''
-    loss_D_gan = torch.mean(pred_fake) - torch.mean(pred_real)    
-    alpha = torch.rand(real.size(0), 1, 1, 1).to(self.gpu)
-    x_hat = (alpha * real.data + (1 - alpha) * fake.data).requires_grad_(True)
-    out_src, _ = netD(x_hat)
-    loss_D_gp = self.gradient_penalty(out_src, x_hat)
-
-
-    loss_D_cls = self.cls_loss(pred_real_cls, self.c_org)
-    loss_D = loss_D_gan + self.opts.lambda_cls * loss_D_cls  + 10*loss_D_gp
-    loss_D.backward()
-    return loss_D_gan, loss_D_cls, loss_D_gp
-
-  def update_EG(self):
-    # update G, Ec
-    self.enc_c_opt.zero_grad()
-    self.gen_opt.zero_grad()
-    self.backward_EG()
-    self.enc_c_opt.step()
-    self.gen_opt.step()
-
-  def backward_EG(self):
-    # content Ladv for generator
-    if self.opts.isDcontent:
-      loss_G_GAN_content = self.backward_G_GAN_content(self.z_content)
-
-
-    # Ladv for generator
-    pred_fake, pred_fake_cls = self.dis.forward(self.fake_img)
-    '''
-    loss_G_GAN = 0
-    for  ut_a in pred_fake:
-      outputs_fake = nn.functional.sigmoid(out_a)
-      all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
-      loss_G_GAN += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
-    '''
-    loss_G_GAN = -torch.mean(pred_fake)
-    # classification
-    loss_G_cls = self.cls_loss(pred_fake_cls, self.c_trg) * self.opts.lambda_cls
-
-    # recon
-    loss_G_rec = torch.mean(torch.abs(self.input - self.fake_recon)) * self.opts.lambda_rec
-
-
-    # KL loss - z_c
-    loss_kl_zc = self._l2_regularize(self.z_content) * 0.01 *0
-
-
-    loss_G = loss_G_GAN + loss_G_cls + loss_G_rec + loss_kl_zc
-    if self.opts.isDcontent:
-      loss_G += loss_G_GAN_content
-    loss_G.backward(retain_graph=True)
-
-    self.gan_loss = loss_G_GAN.item()
-    self.gan_cls_loss = loss_G_cls.item()
-    if self.opts.isDcontent:
-      self.gan_loss_content = loss_G_GAN_content.item()
-    self.kl_loss_zc = loss_kl_zc.item()
-    self.l1_rec_loss = loss_G_rec.item()
-    self.G_loss = loss_G.item()
-
-  def backward_G_GAN_content(self, data):
-    pred_cls = self.disContent.forward(data)
-    loss_G_content = self.cls_loss(pred_cls, 1-self.c_org)
-    return loss_G_content
-
-  def _l2_regularize(self, mu):
-    mu_2 = torch.pow(mu, 2)
-    encoding_loss = torch.mean(mu_2)
-    return encoding_loss
-
-  def gradient_penalty(self, y, x):
-    """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
-    weight = torch.ones(y.size()).to(self.gpu)
-    dydx = torch.autograd.grad(outputs=y,
-                               inputs=x,
-                               grad_outputs=weight,
-                               retain_graph=True,
-                               create_graph=True,
-                               only_inputs=True)[0]
-
-    dydx = dydx.view(dydx.size(0), -1)
-    dydx_l2norm = torch.sqrt(torch.sum(dydx**2, dim=1))
-    return torch.mean((dydx_l2norm-1)**2)
-
-  def update_lr(self):
-    self.dis_sch.step()
-    if self.opts.isDcontent:
-      self.disContent_sch.step()
-    self.enc_c_sch.step()
-    self.gen_sch.step()
-
-  def assemble_outputs(self):
-    images_real = self.normalize_image(self.real_img).detach()
-    images_fake_recon = self.normalize_image(self.fake_recon).detach()
-    images_fake_img = self.normalize_image(self.fake_img).detach()
-    row1 = torch.cat((images_real[0:1, ::], images_fake_recon[0:1, ::], images_fake_img[0:1, ::]),3)
-    return row1
-
-  def normalize_image(self, x):
-    return x[:,0:3,:,:]
-
-
-  def save(self, filename, ep, total_it):
-    state = {
-             'dis': self.dis.state_dict(),
-             'disContent': self.disContent.state_dict(),
-             'enc_c': self.enc_c.state_dict(),
-             'gen': self.gen.state_dict(),
-             'dis_opt': self.dis_opt.state_dict(),
-             'disContent_opt': self.disContent_opt.state_dict(),
-             'enc_c_opt': self.enc_c_opt.state_dict(),
-             'gen_opt': self.gen_opt.state_dict(),
-             'ep': ep,
-             'total_it': total_it
-              }
-    torch.save(state, filename)
-    return
-
-  def resume(self, model_dir, train=True):
-    checkpoint = torch.load(model_dir)
-    # weight
-    if train:
-      self.dis.load_state_dict(checkpoint['dis'])
-      if self.isDcontent:
-        self.disContent.load_state_dict(checkpoint['disContent'])
-    self.enc_c.load_state_dict(checkpoint['enc_c'])
-    self.gen.load_state_dict(checkpoint['gen'])
-    # optimizer
-    if train:
-      self.dis_opt.load_state_dict(checkpoint['dis_opt'])
-      if self.isDcontent:
-        self.disContent_opt.load_state_dict(checkpoint['disContent_opt'])
-      self.enc_c_opt.load_state_dict(checkpoint['enc_c_opt'])
-      self.gen_opt.load_state_dict(checkpoint['gen_opt'])
-    return checkpoint['ep'], checkpoint['total_it']
-
-############################################################################################################
 
 class MD_multi(nn.Module):
   def __init__(self, opts):
@@ -250,7 +17,6 @@ class MD_multi(nn.Module):
       self.concat = True
     else:
       self.concat = False
-    self.iswgan = opts.iswgan 
  
     self.dis1 = networks.MD_Dis(opts.input_dim, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=opts.num_domains, image_size=opts.crop_size)
     self.dis2 = networks.MD_Dis(opts.input_dim, norm=opts.dis_norm, sn=opts.dis_spectral_norm, c_dim=opts.num_domains, image_size=opts.crop_size)
@@ -425,46 +191,30 @@ class MD_multi(nn.Module):
     self.forward()
 
     self.dis1_opt.zero_grad()
-    if self.iswgan:
-      self.D1_gan_loss, self.D1_cls_loss, self.D1_gp_loss = self.backward_D(self.dis1, self.input, self.fake_encoded_img)
-    else:
-      self.D1_gan_loss, self.D1_cls_loss, _ = self.backward_D(self.dis1, self.input, self.fake_encoded_img)
+    self.D1_gan_loss, self.D1_cls_loss = self.backward_D(self.dis1, self.input, self.fake_encoded_img)
     self.dis1_opt.step()
 
     self.dis2_opt.zero_grad()
-    if self.iswgan:
-      self.D2_gan_loss, self.D2_cls_loss, self.D2_gp_loss = self.backward_D(self.dis2, self.input, self.fake_random_img)
-    else:
-      self.D2_gan_loss, self.D2_cls_loss, _ = self.backward_D(self.dis2, self.input, self.fake_random_img)
+    self.D2_gan_loss, self.D2_cls_loss = self.backward_D(self.dis2, self.input, self.fake_random_img)
     self.dis2_opt.step()
 
   def backward_D(self, netD, real, fake):
     pred_fake, pred_fake_cls = netD.forward(fake.detach())
     pred_real, pred_real_cls = netD.forward(real)
-    if self.iswgan:
-      loss_D_gan = torch.mean(pred_fake) - torch.mean(pred_real)    
-      alpha = torch.rand(real.size(0), 1, 1, 1).to(self.gpu)
-      x_hat = (alpha * real.data + (1 - alpha) * fake.data).requires_grad_(True)
-      out_src, _ = netD(x_hat)
-      loss_D_gp = self.gradient_penalty(out_src, x_hat)
-    else:
-      loss_D_gan = 0
-      for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
-        out_fake = nn.functional.sigmoid(out_a)
-        out_real = nn.functional.sigmoid(out_b)
-        all0 = torch.zeros_like(out_fake).cuda(self.gpu)
-        all1 = torch.ones_like(out_real).cuda(self.gpu)
-        ad_fake_loss = nn.functional.binary_cross_entropy(out_fake, all0)
-        ad_true_loss = nn.functional.binary_cross_entropy(out_real, all1)
-        loss_D_gan += ad_true_loss + ad_fake_loss
-      loss_D_gp = 0
+    loss_D_gan = 0
+    for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
+      out_fake = nn.functional.sigmoid(out_a)
+      out_real = nn.functional.sigmoid(out_b)
+      all0 = torch.zeros_like(out_fake).cuda(self.gpu)
+      all1 = torch.ones_like(out_real).cuda(self.gpu)
+      ad_fake_loss = nn.functional.binary_cross_entropy(out_fake, all0)
+      ad_true_loss = nn.functional.binary_cross_entropy(out_real, all1)
+      loss_D_gan += ad_true_loss + ad_fake_loss
 
     loss_D_cls = self.cls_loss(pred_real_cls, self.c_org)
     loss_D = loss_D_gan + self.opts.lambda_cls * loss_D_cls 
-    if self.iswgan:
-      loss_D += 10*loss_D_gp
     loss_D.backward()
-    return loss_D_gan, loss_D_cls, loss_D_gp
+    return loss_D_gan, loss_D_cls
 
   def update_EG(self):
     # update G, Ec, Ea
@@ -490,14 +240,11 @@ class MD_multi(nn.Module):
 
     # Ladv for generator
     pred_fake, pred_fake_cls = self.dis1.forward(self.fake_encoded_img)
-    if self.iswgan:
-      loss_G_GAN = -torch.mean(pred_fake)
-    else:
-      loss_G_GAN = 0
-      for out_a in pred_fake:
-        outputs_fake = nn.functional.sigmoid(out_a)
-        all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
-        loss_G_GAN += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
+    loss_G_GAN = 0
+    for out_a in pred_fake:
+      outputs_fake = nn.functional.sigmoid(out_a)
+      all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
+      loss_G_GAN += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
    
     # classification
     loss_G_cls = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls_G
@@ -541,14 +288,11 @@ class MD_multi(nn.Module):
   def backward_G_alone(self):
     # Ladv for generator
     pred_fake, pred_fake_cls = self.dis2.forward(self.fake_random_img)
-    if self.iswgan:
-      loss_G_GAN2 = -torch.mean(pred_fake)
-    else:
-      loss_G_GAN2 = 0
-      for out_a in pred_fake:
-        outputs_fake = nn.functional.sigmoid(out_a)
-        all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
-        loss_G_GAN2 += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
+    loss_G_GAN2 = 0
+    for out_a in pred_fake:
+      outputs_fake = nn.functional.sigmoid(out_a)
+      all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
+      loss_G_GAN2 += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
 
     # classification
     loss_G_cls2 = self.cls_loss(pred_fake_cls, self.c_org) * self.opts.lambda_cls_G
@@ -571,20 +315,6 @@ class MD_multi(nn.Module):
     mu_2 = torch.pow(mu, 2)
     encoding_loss = torch.mean(mu_2)
     return encoding_loss
-
-  def gradient_penalty(self, y, x):
-    """Compute gradient penalty: (L2_norm(dy/dx) - 1)**2."""
-    weight = torch.ones(y.size()).to(self.gpu)
-    dydx = torch.autograd.grad(outputs=y,
-                               inputs=x,
-                               grad_outputs=weight,
-                               retain_graph=True,
-                               create_graph=True,
-                               only_inputs=True)[0]
-
-    dydx = dydx.view(dydx.size(0), -1)
-    dydx_l2norm = torch.sqrt(torch.sum(dydx**2, dim=1))
-    return torch.mean((dydx_l2norm-1)**2)
 
   def update_lr(self):
     self.dis1_sch.step()

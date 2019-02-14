@@ -38,7 +38,6 @@ class TrainOptions():
     self.parser.add_argument('--lambda_cls', type=float, default=1.0)
     self.parser.add_argument('--lambda_cls_G', type=float, default=5.0)
     self.parser.add_argument('--isDcontent', action='store_true')
-    self.parser.add_argument('--iswgan', action='store_true')
     self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
 
   def parse(self):
@@ -74,7 +73,6 @@ class TestOptions():
     self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
 
     self.parser.add_argument('--isDcontent', action='store_true')
-    self.parser.add_argument('--iswgan', action='store_true')
 
   def parse(self):
     self.opt = self.parser.parse_args()

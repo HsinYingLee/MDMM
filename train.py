@@ -16,7 +16,6 @@ def main():
 
   # model
   print('\n--- load model ---')
-  #model = MD_uni(opts)
   model = MD_multi(opts)
   model.setgpu(opts.gpu)
   if opts.resume is None:
@@ -51,8 +50,6 @@ def main():
       if opts.isDcontent:
         if (it + 1) % opts.d_iter != 0 and it < len(train_loader) - 2:
           model.update_D_content(images, c_org)
-          if opts.iswgan:
-            model.update_D(images, c_org)
           continue
         else:
           model.update_D(images, c_org)
@@ -60,14 +57,6 @@ def main():
       else:
         model.update_D(images, c_org)
         model.update_EG()
-      '''
-      if (it + 1) % opts.d_iter != 0 and it < len(train_loader) - 2:
-        model.update_D_content(images_a, images_b)
-        continue
-      else:
-        model.update_D(images_a, images_b)
-        model.update_EG()
-      '''
       # save to display file
       if not opts.no_display_img:
         saver.write_display(total_it, model)

@@ -5,7 +5,7 @@ With the disentangled representation framework, we can learn diverse image-to-im
 [[DRIT]](https://github.com/HsinYingLee/DRIT)
 
 ## Example Results
-
+<img src='imgs/MDMM_results2.png' width="800px">
 
 ### Prerequisites
 - Python 3.5 or Python 3.6
@@ -30,7 +30,14 @@ We validate our model on two datasets:
 - weather: Containing four domains: sunny, cloudy, snowy, and foggy. Data is randomly selected from the Image2Weather dataset [website](https://www.cs.ccu.edu.tw/~wtchu/projects/Weather/index.html).
 
 ## Models
-
+- The pretrained model on the art dataset
+'''
+bash ./models/download_model.sh art
+'''
+- The pretrained model on the weather dataset
+'''
+bash ./models/download_model.sh art
+'''
 
 ## Paper
 Diverse Image-to-Image Translation via Disentangled Representations<br>
