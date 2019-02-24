@@ -31,15 +31,17 @@ We validate our model on two datasets:
 - art: Containing three domains: real images, Monet images, uki-yoe images. Data can be downloaded from CycleGAN [website](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix).
 - weather: Containing four domains: sunny, cloudy, snowy, and foggy. Data is randomly selected from the Image2Weather dataset [website](https://www.cs.ccu.edu.tw/~wtchu/projects/Weather/index.html).
 
+The different domains in a dataset should be placed in folders "trainA, trainB, ..." in the alphabetical order.
+
 ## Models
 - The pretrained model on the art dataset
-'''
+```
 bash ./models/download_model.sh art
-'''
+```
 - The pretrained model on the weather dataset
-'''
-bash ./models/download_model.sh art
-'''
+```
+bash ./models/download_model.sh weather
+```
 
 ## Note
 - The feature transformation (i.e. concat 0) is not fully tested since both art and weather datasets do not require shape variations
